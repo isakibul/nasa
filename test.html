@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Interactive Exoplanet Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: radial-gradient(circle, #0a0a0a, #000000);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 15px;
+            max-width: 350px;
+            z-index: 100;
+            font-size: 14px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        #planetInfo {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 15px;
+            max-width: 300px;
+            z-index: 100;
+            font-size: 14px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            font-size: 12px;
+        }
+
+        input[type="number"] {
+            width: 100px;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: none;
+            background: #333;
+            color: white;
+            font-size: 14px;
+        }
+
+        button {
+            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            margin: 10px 5px 0 0;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .temp-range {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .status.cold { background: rgba(173, 216, 230, 0.3); color: #ADD8E6; }
+        .status.cool { background: rgba(135, 206, 250, 0.3); color: #87CEFD; }
+        .status.temperate { background: rgba(255, 255, 255, 0.3); color: #FFF; }
+        .status.warm { background: rgba(255, 215, 0, 0.3); color: #FFD700; }
+        .status.hot { background: rgba(255, 140, 0, 0.3); color: #FF8C00; }
+        .status.very-hot { background: rgba(255, 69, 0, 0.3); color: #FF4500; }
+        .status.extreme { background: rgba(139, 0, 0, 0.3); color: #FF6B6B; }
+        .status.infernal { background: rgba(75, 0, 0, 0.3); color: #FF4444; }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <h3>🪐 Exoplanet Generator</h3>
+        <label for="tempInput">Temperature (K):</label><br>
+        <input type="number" id="tempInput" value="1581" min="50" max="3000" step="1">
+        <br>
+        <button id="generateBtn">Generate Planet</button>
+        <button id="randomBtn">Random Planet</button>
+
+        <div class="temp-range">
+            <strong>Temperature Ranges:</strong><br>
+            &lt; 250K: Icy Blue<br>
+            250-400K: Cold Blue<br>
+            400-600K: White/Icy<br>
+            600-800K: Yellowish<br>
+            800-1000K: Orange<br>
+            1000-1500K: Red-Orange<br>
+            1500-2000K: Dark Red<br>
+            &gt; 2000K: Deep Red/Infrared
+        </div>
+    </div>
+
+    <div id="planetInfo">
+        <h3>Planet Classification</h3>
+        <div id="planetDetails">
+            <p><strong>Temperature:</strong> <span id="currentTemp">1581</span> K</p>
+            <p><strong>Type:</strong> <span id="planetType">Ultra-hot Rocky</span></p>
+            <p><strong>Surface:</strong> <span id="surfaceType">Molten rock</span></p>
+            <p><strong>Habitability:</strong> <span id="habitability">Uninhabitable</span></p>
+            <div id="statusIndicator" class="status extreme">EXTREME HEAT</div>
+        </div>
+    </div>
+
+    <div id="instructions">
+        <p>🖱️ Click and drag to rotate planet</p>
+        <p>🎛️ Enter temperature and click "Generate Planet"</p>
+        <p>🎲 Try "Random Planet" for surprise temperatures</p>
+    </div>
+
+    <script>
+        // Scene setup
+        let scene, camera, renderer, planet, atmosphere, shimmer;
+        let currentPlanetGroup = new THREE.Group();
+        let lights = [];
+        let starField = null;
+
+        function initScene() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Make canvas fixed and behind overlays
+            renderer.domElement.style.position = 'fixed';
+            renderer.domElement.style.top = '0';
+            renderer.domElement.style.left = '0';
+            renderer.domElement.style.zIndex = '0';
+            document.body.appendChild(renderer.domElement);
+
+            scene.add(currentPlanetGroup);
+
+            // Add stars
+            createStarField();
+
+            camera.position.z = 10;
+
+            // Generate initial planet (safe call)
+            generatePlanet();
+        }
+
+        function disposeMaterialAndGeometry(obj) {
+            if (!obj) return;
+            if (obj.geometry) {
+                obj.geometry.dispose();
+            }
+            if (obj.material) {
+                // material can be an array
+                if (Array.isArray(obj.material)) {
+                    obj.material.forEach(m => {
+                        if (m.map) m.map.dispose();
+                        m.dispose();
+                    });
+                } else {
+                    if (obj.material.map) obj.material.map.dispose();
+                    obj.material.dispose();
+                }
+            }
+        }
+
+        function clearGroup(group) {
+            // dispose children properly
+            while (group.children.length > 0) {
+                const child = group.children[0];
+                // recursively clear if it's a group
+                if (child.type === 'Group') {
+                    clearGroup(child);
+                }
+                disposeMaterialAndGeometry(child);
+                group.remove(child);
+            }
+        }
+
+        function createStarField() {
+            // remove previous star field if exists
+            if (starField) {
+                disposeMaterialAndGeometry(starField);
+                scene.remove(starField);
+                starField = null;
+            }
+
+            const starsGeometry = new THREE.BufferGeometry();
+            const starsVertices = [];
+            const STAR_COUNT = 1500;
+            for (let i = 0; i < STAR_COUNT; i++) {
+                const x = (Math.random() - 0.5) * 300;
+                const y = (Math.random() - 0.5) * 300;
+                const z = (Math.random() - 0.5) * 300;
+                starsVertices.push(x, y, z);
+            }
+            starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+            const starsMaterial = new THREE.PointsMaterial({
+                color: 0xFFFFFF,
+                size: 0.6
+            });
+            starField = new THREE.Points(starsGeometry, starsMaterial);
+            scene.add(starField);
+        }
+
+        function getPlanetData(temperature) {
+            if (temperature < 250) {
+                return {
+                    color: 0x87CEFD,
+                    emissive: 0x001144,
+                    emissiveIntensity: 0.1,
+                    type: "Ice World",
+                    surface: "Frozen ice caps, crystalline formations",
+                    habitability: "Too Cold",
+                    status: "FROZEN",
+                    statusClass: "cold",
+                    atmosphereColor: 0x4488FF,
+                    atmosphereOpacity: 0.10
+                };
+            } else if (temperature < 400) {
+                return {
+                    color: 0x4682B4,
+                    emissive: 0x001133,
+                    emissiveIntensity: 0.1,
+                    type: "Cold Rocky",
+                    surface: "Icy surface, possible frozen oceans",
+                    habitability: "Too Cold",
+                    status: "COLD",
+                    statusClass: "cold",
+                    atmosphereColor: 0x6699FF,
+                    atmosphereOpacity: 0.12
+                };
+            } else if (temperature < 600) {
+                return {
+                    color: 0xF5F5F5,
+                    emissive: 0x112233,
+                    emissiveIntensity: 0.15,
+                    type: "Temperate Ice",
+                    surface: "Snow, ice, reflective clouds",
+                    habitability: temperature > 273 ? "Possibly Habitable" : "Too Cold",
+                    status: "COOL",
+                    statusClass: "cool",
+                    atmosphereColor: 0x99AAFF,
+                    atmosphereOpacity: 0.15
+                };
+            } else if (temperature < 800) {
+                return {
+                    color: 0xFFFF99,
+                    emissive: 0x332200,
+                    emissiveIntensity: 0.2,
+                    type: "Warm Rocky",
+                    surface: "Thawing ice, possible liquid water",
+                    habitability: "Potentially Habitable",
+                    status: "TEMPERATE",
+                    statusClass: "temperate",
+                    atmosphereColor: 0xFFFFAA,
+                    atmosphereOpacity: 0.18
+                };
+            } else if (temperature < 1000) {
+                return {
+                    color: 0xFF8C00,
+                    emissive: 0x442200,
+                    emissiveIntensity: 0.25,
+                    type: "Hot Rocky",
+                    surface: "Hot atmosphere, desert-like",
+                    habitability: "Too Hot",
+                    status: "HOT",
+                    statusClass: "warm",
+                    atmosphereColor: 0xFF9944,
+                    atmosphereOpacity: 0.2
+                };
+            } else if (temperature < 1500) {
+                return {
+                    color: 0xFF4500,
+                    emissive: 0x441100,
+                    emissiveIntensity: 0.3,
+                    type: "Very Hot Rocky",
+                    surface: "Intense heat, possible lava flows",
+                    habitability: "Uninhabitable",
+                    status: "VERY HOT",
+                    statusClass: "hot",
+                    atmosphereColor: 0xFF6622,
+                    atmosphereOpacity: 0.25
+                };
+            } else if (temperature < 2000) {
+                return {
+                    color: 0x8B0000,
+                    emissive: 0x440000,
+                    emissiveIntensity: 0.4,
+                    type: "Ultra-hot Rocky",
+                    surface: "Molten rock, extreme volcanism",
+                    habitability: "Uninhabitable",
+                    status: "EXTREME HEAT",
+                    statusClass: "very-hot",
+                    atmosphereColor: 0xFF4400,
+                    atmosphereOpacity: 0.3
+                };
+            } else {
+                return {
+                    color: 0x4B0000,
+                    emissive: 0x660000,
+                    emissiveIntensity: 0.6,
+                    type: "Infernal World",
+                    surface: "Completely molten, violent atmosphere",
+                    habitability: "Uninhabitable",
+                    status: "INFERNAL",
+                    statusClass: "infernal",
+                    atmosphereColor: 0xFF2200,
+                    atmosphereOpacity: 0.4
+                };
+            }
+        }
+
+        function generatePlanet() {
+            const tempInput = document.getElementById('tempInput');
+            let temperature = parseInt(tempInput.value, 10);
+            if (Number.isNaN(temperature)) temperature = 1581;
+            // clamp temperature to allowed range
+            temperature = Math.max(50, Math.min(3000, temperature));
+
+            const planetData = getPlanetData(temperature);
+
+            // Clear existing planet (proper disposal)
+            clearGroup(currentPlanetGroup);
+            // remove lights from scene
+            lights.forEach(light => {
+                if (light.parent) light.parent.remove(light);
+            });
+            lights = [];
+
+            // Planet body
+            const planetGeometry = new THREE.SphereGeometry(3, 64, 64);
+            const planetMaterial = new THREE.MeshPhongMaterial({
+                color: planetData.color,
+                emissive: planetData.emissive,
+                emissiveIntensity: planetData.emissiveIntensity,
+                shininess: temperature > 1000 ? 60 : 30,
+                specular: temperature > 1000 ? planetData.color : 0x444444
+            });
+
+            planet = new THREE.Mesh(planetGeometry, planetMaterial);
+            planet.castShadow = true;
+            planet.receiveShadow = true;
+            currentPlanetGroup.add(planet);
+
+            // Add surface features based on temperature
+            if (temperature > 800) {
+                // Add volcanic/hot spots for hot planets
+                const spotCount = Math.min(Math.floor((temperature - 800) / 50), 25);
+                for (let i = 0; i < spotCount; i++) {
+                    const spotGeometry = new THREE.SphereGeometry(0.1 + Math.random() * 0.2, 12, 12);
+                    const spotMaterial = new THREE.MeshPhongMaterial({
+                        color: temperature > 1500 ? 0xFF2200 : 0xFF6600,
+                        emissive: temperature > 1500 ? 0xFF4400 : 0xFF3300,
+                        emissiveIntensity: 0.8,
+                        shininess: 10
+                    });
+
+                    const spot = new THREE.Mesh(spotGeometry, spotMaterial);
+                    const phi = Math.random() * Math.PI * 2;
+                    const theta = Math.random() * Math.PI;
+                    const radius = 3.05;
+
+                    spot.position.x = radius * Math.sin(theta) * Math.cos(phi);
+                    spot.position.y = radius * Math.sin(theta) * Math.sin(phi);
+                    spot.position.z = radius * Math.cos(theta);
+
+                    currentPlanetGroup.add(spot);
+                }
+            } else if (temperature < 400) {
+                // Add ice caps for cold planets
+                const capGeometry = new THREE.SphereGeometry(1.5, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.3);
+                const capMaterial = new THREE.MeshPhongMaterial({
+                    color: 0xF0F8FF,
+                    transparent: true,
+                    opacity: 0.8,
+                    shininess: 5
+                });
+
+                const northCap = new THREE.Mesh(capGeometry, capMaterial);
+                northCap.position.y = 2;
+                currentPlanetGroup.add(northCap);
+
+                const southCap = new THREE.Mesh(capGeometry, capMaterial);
+                southCap.position.y = -2;
+                southCap.rotation.x = Math.PI;
+                currentPlanetGroup.add(southCap);
+            }
+
+            // Create atmosphere (simple)
+            const atmosphereGeometry = new THREE.SphereGeometry(3.4, 32, 32);
+            const atmosphereMaterial = new THREE.MeshBasicMaterial({
+                color: planetData.atmosphereColor,
+                transparent: true,
+                opacity: planetData.atmosphereOpacity,
+                side: THREE.FrontSide
+            });
+            atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+            atmosphere.renderOrder = 0;
+            currentPlanetGroup.add(atmosphere);
+
+            // Heat shimmer for hot planets
+            if (temperature > 600) {
+                const shimmerGeometry = new THREE.SphereGeometry(3.2, 32, 32);
+                const shimmerMaterial = new THREE.MeshBasicMaterial({
+                    color: planetData.atmosphereColor,
+                    transparent: true,
+                    opacity: planetData.atmosphereOpacity * 0.5,
+                    side: THREE.DoubleSide
+                });
+                shimmer = new THREE.Mesh(shimmerGeometry, shimmerMaterial);
+                shimmer.renderOrder = 1;
+                currentPlanetGroup.add(shimmer);
+            }
+
+            // Lighting based on temperature
+            const ambientLight = new THREE.AmbientLight(
+                temperature > 1000 ? 0x331100 : 0x404040,
+                0.4
+            );
+            scene.add(ambientLight);
+            lights.push(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(
+                temperature > 1000 ? 0xFF4400 : 0xFFFFFF,
+                temperature > 1500 ? 1.5 : 1
+            );
+            directionalLight.position.set(10, 10, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+            lights.push(directionalLight);
+
+            if (temperature > 1000) {
+                const heatLight = new THREE.PointLight(planetData.emissive || 0xFF4400, 2, 50);
+                heatLight.position.set(0, 0, 8);
+                scene.add(heatLight);
+                lights.push(heatLight);
+            }
+
+            // Update UI
+            document.getElementById('currentTemp').textContent = temperature;
+            document.getElementById('planetType').textContent = planetData.type;
+            document.getElementById('surfaceType').textContent = planetData.surface;
+            document.getElementById('habitability').textContent = planetData.habitability;
+
+            const statusDiv = document.getElementById('statusIndicator');
+            statusDiv.textContent = planetData.status;
+            // fixed class assignment
+            statusDiv.className = 'status ' + planetData.statusClass;
+        }
+
+        function randomPlanet() {
+            // include 3000 as possible value
+            const randomTemp = Math.floor(Math.random() * (3000 - 50 + 1)) + 50; // 50K to 3000K inclusive
+            document.getElementById('tempInput').value = randomTemp;
+            generatePlanet();
+        }
+
+        // Mouse controls
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+        let isMouseDown = false;
+
+        document.addEventListener('mousedown', (e) => { isMouseDown = true; });
+        document.addEventListener('mouseup', (e) => { isMouseDown = false; });
+        document.addEventListener('mousemove', (e) => {
+            if (isMouseDown) {
+                mouseX = e.clientX - window.innerWidth / 2;
+                mouseY = e.clientY - window.innerHeight / 2;
+                targetRotationY = (mouseX / window.innerWidth) * Math.PI * 2;
+                targetRotationX = (mouseY / window.innerHeight) * Math.PI * 2;
+            }
+        });
+
+        // Animation loop
+        let time = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+
+            time += 0.01;
+
+            if (currentPlanetGroup.children.length > 0) {
+                if (!isMouseDown) {
+                    currentPlanetGroup.rotation.y += 0.005;
+                } else {
+                    currentPlanetGroup.rotation.y += (targetRotationY - currentPlanetGroup.rotation.y) * 0.05;
+                    currentPlanetGroup.rotation.x += (targetRotationX - currentPlanetGroup.rotation.x) * 0.05;
+                }
+
+                // Animate materials (only if property exists)
+                currentPlanetGroup.children.forEach((child, index) => {
+                    if (child.material && typeof child.material.emissiveIntensity === 'number') {
+                        const baseIntensity = child.material.emissiveIntensity || 0;
+                        child.material.emissiveIntensity = baseIntensity + Math.sin(time * 2 + index) * 0.1;
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (!camera || !renderer) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Allow Enter key to generate planet — use keydown for reliability
+        const tempInputEl = document.getElementById('tempInput');
+        tempInputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                generatePlanet();
+            }
+        });
+
+        // Buttons
+        document.getElementById('generateBtn').addEventListener('click', generatePlanet);
+        document.getElementById('randomBtn').addEventListener('click', randomPlanet);
+
+        // Initialize
+        initScene();
+        animate();
+    </script>
+</body>
+</html>
